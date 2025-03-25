@@ -16,3 +16,8 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
+# Database Setup
+conn = sqlite3.connect("subscribers.db", check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT, category TEXT, openai_api_key TEXT)")
+conn.commit()
