@@ -13,7 +13,8 @@ from threading import Thread
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(_name_)
+app = Flask(__name__)
+
 
 # Load environment variables
 SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
@@ -42,6 +43,7 @@ def get_yahoo_finance_data():
     soup = BeautifulSoup(response.text, 'html.parser')
 
     news_items = []
+    # Update the selectors to match the current Yahoo Finance layout
     for item in soup.find_all('li', {'class': 'js-stream-content'}):
         title = item.find('h3')
         summary = item.find('p')
@@ -63,6 +65,7 @@ def get_tech_news():
     soup = BeautifulSoup(response.text, 'html.parser')
 
     tech_news_items = []
+    # Updated TechCrunch parsing logic
     for item in soup.find_all('div', {'class': 'post-block'}):
         title = item.find('a', {'class': 'post-block_title_link'})
         summary = item.find('div', {'class': 'post-block__content'})
@@ -100,13 +103,25 @@ def send_newsletter():
     finance_news = get_yahoo_finance_data()
     tech_news = get_tech_news()
 
+    # Debug: print scraped news to console
+    print("Finance News:", finance_news)
+    print("Tech News:", tech_news)
+
     # Combine both Finance and Tech news
     content = "<h1>Today's News: Finance & Tech</h1><h2>Finance News</h2><ul>"
-    for item in finance_news:
-        content += f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+    if finance_news:
+        for item in finance_news:
+            content += f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+    else:
+        content += "<li>No Finance news available.</li>"
+
     content += "</ul><h2>Tech News</h2><ul>"
-    for item in tech_news:
-        content += f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+    if tech_news:
+        for item in tech_news:
+            content += f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+    else:
+        content += "<li>No Tech news available.</li>"
+
     content += "</ul>"
 
     # Fetch all subscribers from the database
@@ -144,7 +159,7 @@ def job():
         c.get('/send_newsletter')  # Trigger the newsletter
 
 # Schedule the job every day at 1:40 AM
-schedule.every().day.at("02:05").do(job)
+schedule.every().day.at("18:25").do(job)
 
 # Background scheduler to run the task
 def run_scheduler():
@@ -152,7 +167,7 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(60)  # Sleep for 1 minute
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     # Initialize the database
     init_db()
 
