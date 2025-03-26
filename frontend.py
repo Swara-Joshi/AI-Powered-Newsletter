@@ -1,31 +1,27 @@
 import streamlit as st
 import requests
 
-# FastAPI Backend URL
-BACKEND_URL = "http://127.0.0.1:8000"
+# Streamlit UI
+st.title("AI-Powered Newsletter Subscription")
 
-# Ask for the OpenAI API key
-openai_api_key = st.text_input("Enter your OpenAI API key:")
+st.subheader("Subscribe to our AI-Powered Newsletter")
 
-# Check if the OpenAI API key is provided
-if openai_api_key:
-    st.title("📩 AI-Powered News Subscription")
-    st.subheader("Get AI-generated news summaries delivered to your inbox!")
+# User Input Fields
+email = st.text_input("Enter your email:", placeholder="your_email@example.com")
 
-    # Subscription Form
-    email = st.text_input("Enter your email:")
-    category = st.selectbox("Select news category:", ["technology", "business"])
+# Dropdown for Preferences
+preference_options = ["Tech News", "Finance & Markets"]
+preference = st.multiselect("Choose your preferences:", preference_options)
 
-    # Subscribe button
-    if st.button("Subscribe"):
-        # Make the POST request to FastAPI backend
-        response = requests.post(f"{BACKEND_URL}/subscribe/", params={"email": email, "category": category})
-        
+# Submit Button
+if st.button("Subscribe"):
+    if email and preference:
+        # Sending data to Flask backend
+        response = requests.post("http://127.0.0.1:5000/subscribe", json={"email": email, "preference": ", ".join(preference)})
         if response.status_code == 200:
-            # Show success message
-            st.success("Successfully subscribed! Check your email for daily updates.")
+            st.success("Subscription successful!")
         else:
-            # Show error message
-            st.error("Subscription failed. Try again.")
+            st.error("Subscription failed. Please try again.")
+    else:
+        st.warning("Please enter your email and select at least one preference.")
 
-   
