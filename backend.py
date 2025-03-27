@@ -15,6 +15,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from threading import Thread
+# import ssl
+
+# Disable SSL verification (for testing purposes only, not recommended for production)
+# ssl._create_default_https_context = ssl._create_unverified_context
 
 # Load environment variables
 load_dotenv()
@@ -70,10 +74,24 @@ def wait_for_element(driver, by, value, timeout=10):
     """Wait for an element to be present on the page."""
     return WebDriverWait(driver, timeout).until(EC.presence_of_all_elements_located((by, value)))
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.options import Options
+
 def initialize_driver():
-    """Initialize the Selenium WebDriver."""
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
+    chrome_options = Options()
+    # Add any options you need here, for example:
+    chrome_options.add_argument('--headless')  # If you want to run in headless mode
+
+    # Create the service object and pass it to the driver
+    service = Service(ChromeDriverManager().install())
+
+    # Initialize the driver with the service object and options
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
+
+
 
 def get_finance_news(driver):
     """Scrape finance news from CNBC with retry logic and get summaries. Only returns the top 5 news."""
@@ -239,7 +257,7 @@ def send_newsletter():
         return jsonify({"message": "Newsletter sent successfully!"})
 
 # Schedule the newsletter to be sent daily at 11:48
-schedule.every().day.at("15:57").do(send_newsletter)
+schedule.every().day.at("18:59").do(send_newsletter)
 
 def run_scheduler():
     schedule.every(1).minute.do(send_newsletter)  # Run the job every minute
