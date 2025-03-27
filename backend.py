@@ -5,9 +5,10 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import schedule
 import time
+import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -71,13 +72,11 @@ def wait_for_element(driver, by, value, timeout=10):
 
 def initialize_driver():
     """Initialize the Selenium WebDriver."""
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless')  # Run in headless mode (no GUI)
-    driver = webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
     return driver
 
 def get_finance_news(driver):
-    """Scrape finance news from CNBC with retry logic."""
+    """Scrape finance news from CNBC with retry logic and get summaries. Only returns the top 5 news."""
     try:
         print("Navigating to the finance news page...")
         driver.get('https://www.cnbc.com/finance/')
@@ -96,21 +95,22 @@ def get_finance_news(driver):
                     title = element.text.strip()
                     link = element.get_attribute('href')
                     if title:
-                        news.append({'title': title, 'link': link})
+                        # Now fetch the summary from the article page
+                        article_summary = get_article_summary(link)
+                        news.append({'title': title, 'summary': article_summary, 'link': link})
+                    if len(news) >= 5:  # Limit to 5 articles
+                        break
                 break  # Exit if no error occurs
             except Exception as e:
                 print(f"Error while extracting: {e}")
                 news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))  # Re-fetch elements
+        
         if not news:
             print("No finance news found.")
-        return news
+        return news[:5]  # Return only the first 5 news articles
     except Exception as e:
         print(f"Error scraping CNBC Finance: {e}")
         return []
-
-import requests
-from bs4 import BeautifulSoup
-
 
 
 def get_article_summary(article_url):
@@ -163,9 +163,6 @@ def get_tech_news(driver):
         print(f"Error scraping The Verge: {e}")
         return []
 
-
-
-
 def send_email(subject, content, to_email):
     """Send an email using SendGrid."""
     if not SENDGRID_API_KEY or not SENDER_EMAIL:
@@ -202,78 +199,60 @@ def subscribe():
 
 @app.route('/send_newsletter', methods=['GET'])
 def send_newsletter():
-    """Fetch news and send a newsletter to all subscribers."""
-    driver = initialize_driver()  # Initialize the driver here
+    with app.app_context():
+        """Fetch news and send a newsletter to all subscribers."""
+        driver = initialize_driver()  # Initialize the driver here
 
-    # Fetch finance news and tech news
-    finance_news = get_finance_news(driver)
-    tech_news = get_tech_news(driver)
+        # Fetch finance news and tech news
+        finance_news = get_finance_news(driver)
+        tech_news = get_tech_news(driver)
 
-    content = "<h1>Today's Finance & Tech News</h1><h2>Finance News</h2><ul>"
-    
-    if not finance_news or finance_news[0]['title'] == "No Finance news available.":
-        content += "<p>No Finance news available today.</p>"
-    else:
-        content += "".join(f"<li><strong>{item['title']}</strong><br><a href='{item['link']}'>Read more</a></li>"
-                           for item in finance_news)
+        content = "<h1>Today's Finance & Tech News</h1><h2>Finance News</h2><ul>"
+        
+        if not finance_news or finance_news[0]['title'] == "No Finance news available.":
+            content += "<p>No Finance news available today.</p>"
+        else:
+            content += "".join(f"<li><strong>{item['title']}</strong><br><a href='{item['link']}'>Read more</a></li>"
+                            for item in finance_news)
 
-    content += "</ul><h2>Tech News</h2><ul>"
-    
-    if not tech_news or tech_news[0]['title'] == "No Tech news available.":
-        content += "<p>No Tech news available today.</p>"
-    else:
-        content += "".join(f"<li><strong>{item['title']}</strong><br><i>{item['summary']}</i><br><a href='{item['link']}'>Read more</a></li>"
-                           for item in tech_news)
+        content += "</ul><h2>Tech News</h2><ul>"
+        
+        if not tech_news or tech_news[0]['title'] == "No Tech news available.":
+            content += "<p>No Tech news available today.</p>"
+        else:
+            content += "".join(f"<li><strong>{item['title']}</strong><br><i>{item['summary']}</i><br><a href='{item['link']}'>Read more</a></li>"
+                            for item in tech_news)
 
-    content += "</ul>"
+        content += "</ul>"
 
-    subscribers = get_subscribers()
-    
-    if not subscribers:
-        return jsonify({"message": "No subscribers found."}), 404
+        subscribers = get_subscribers()
+        
+        if not subscribers:
+            return jsonify({"message": "No subscribers found."}), 404
 
-    for subscriber in subscribers:
-        send_email("Daily Finance & Tech Newsletter", content, subscriber)
+        for subscriber in subscribers:
+            send_email("Daily Finance & Tech Newsletter", content, subscriber)
 
-    # Quit the driver after the newsletter is sent
-    driver.quit()
+        # Quit the driver after the newsletter is sent
+        driver.quit()
 
-    return jsonify({"message": "Newsletter sent successfully!"})
+        return jsonify({"message": "Newsletter sent successfully!"})
 
 # Schedule the newsletter to be sent daily at 11:48
-schedule.every().day.at("12:50").do(send_newsletter)
+schedule.every().day.at("15:57").do(send_newsletter)
 
 def run_scheduler():
-    """Run the scheduler in the background."""
+    schedule.every(1).minute.do(send_newsletter)  # Run the job every minute
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(1)
 
-def main():
-    # Initialize the driver
-    driver = initialize_driver()
+# Start the scheduler in a separate thread
+def start_background_scheduler():
+    thread = Thread(target=run_scheduler)
+    thread.start()
 
-    # Scrape finance news
-    print("Fetching finance news...")
-    finance_news = get_finance_news(driver)
-    print("Finance News:", finance_news)
-
-    # Scrape tech news
-    print("Fetching tech news...")
-    tech_news = get_tech_news(driver)
-    print("Tech News:", tech_news)
-
-    # Close the driver after use
-    driver.quit()
-
-if __name__ == '__main__':
-    # # Initialize the database
-    # init_db()
-    
-    # # Start the scheduler in a separate thread
-    # scheduler_thread = Thread(target=run_scheduler)
-    # scheduler_thread.start()
-
-    # # Run the Flask app
-    # app.run(debug=False, host='0.0.0.0', port=5000)
-    main()
+if __name__ == "__main__":
+    init_db()  # Ensure database is initialized
+    start_background_scheduler()
+    app.run(debug=True)
