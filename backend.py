@@ -58,50 +58,63 @@ def wait_for_element(driver, by, value, timeout=10):
     """Wait for an element to be present on the page."""
     return WebDriverWait(driver, timeout).until(EC.presence_of_all_elements_located((by, value)))
 
-def get_yahoo_finance_data():
-    """Scrape latest finance news from Yahoo Finance using Selenium."""
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    url = 'https://finance.yahoo.com/'
-    driver.get(url)
-    
-    finance_news = []
+def initialize_driver():
+    """Initialize the Selenium WebDriver."""
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')  # Run in headless mode (no GUI)
+    driver = webdriver.Chrome(options=options)
+    return driver
+
+def get_finance_news(driver):
+    """Scrape finance news from CNBC."""
     try:
-        articles = wait_for_element(driver, By.CSS_SELECTOR, "h3 a")
-        for article in articles[:5]:  # Get top 5 news articles
-            title = article.text.strip()
-            link = article.get_attribute("href")
-            if title and link:
-                finance_news.append({'title': title, 'summary': 'No summary available.', 'link': link})
+        print("Navigating to the finance news page...")
+        driver.get('https://www.cnbc.com/finance/')
+        
+        # Wait for the page to load and find the news elements
+        wait = WebDriverWait(driver, 10)
+        print("Waiting for news elements...")
+        news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))
+        
+        print("Extracting news...")
+        news = []
+        for element in news_elements:
+            title = element.text.strip()
+            link = element.get_attribute('href')
+            if title:
+                news.append({'title': title, 'link': link})
+        
+        print(f"Found {len(news)} finance news articles.")
+        return news
     except Exception as e:
-        print(f"Error scraping Yahoo Finance: {e}")
-    finally:
-        driver.quit()
+        print(f"Error scraping CNBC Finance: {e}")
+        return []
 
-    return finance_news if finance_news else [{'title': 'No Finance news available.', 'summary': '', 'link': ''}]
-
-def get_tech_news():
-    """Scrape latest tech news from TechCrunch using Selenium."""
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    url = 'https://techcrunch.com/'
-    driver.get(url)
-    
-    tech_news = []
+def get_tech_news(driver):
+    """Scrape tech news from The Verge."""
     try:
-        articles = wait_for_element(driver, By.CSS_SELECTOR, "div.post-block")
-        for article in articles[:5]:  # Get top 5 news articles
-            title_tag = article.find_element(By.CSS_SELECTOR, "a.post-block__title__link")
-            summary_tag = article.find_element(By.CSS_SELECTOR, "div.post-block__content")
-            title = title_tag.text.strip()
-            summary = summary_tag.text.strip()
-            link = title_tag.get_attribute("href")
-            if title and link:
-                tech_news.append({'title': title, 'summary': summary, 'link': link})
+        print("Navigating to the tech news page...")
+        driver.get('https://www.theverge.com/')
+        
+        # Wait for the page to load and find the news elements
+        wait = WebDriverWait(driver, 10)
+        print("Waiting for tech news elements...")
+        news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))
+        
+        print("Extracting tech news...")
+        news = []
+        for element in news_elements:
+            title = element.text.strip()
+            link = element.get_attribute('href')
+            if title:
+                news.append({'title': title, 'link': link})
+        
+        print(f"Found {len(news)} tech news articles.")
+        return news
     except Exception as e:
-        print(f"Error scraping TechCrunch: {e}")
-    finally:
-        driver.quit()
-
-    return tech_news if tech_news else [{'title': 'No Tech news available.', 'summary': '', 'link': ''}]
+        print(f"Error scraping The Verge: {e}")
+        return []
+    
 
 def send_email(subject, content, to_email):
     """Send an email using SendGrid."""
@@ -124,10 +137,14 @@ def send_email(subject, content, to_email):
         print(f"Error sending email: {e}")
 
 @app.route('/send_newsletter', methods=['GET'])
+@app.route('/send_newsletter', methods=['GET'])
 def send_newsletter():
     """Fetch news and send a newsletter to all subscribers."""
-    finance_news = get_yahoo_finance_data()
-    tech_news = get_tech_news()
+    driver = initialize_driver()  # Initialize the driver here
+
+    # Fetch finance news and tech news
+    finance_news = get_finance_news(driver)
+    tech_news = get_tech_news(driver)
 
     content = "<h1>Today's Finance & Tech News</h1><h2>Finance News</h2><ul>"
     
@@ -155,35 +172,13 @@ def send_newsletter():
     for subscriber in subscribers:
         send_email("Daily Finance & Tech Newsletter", content, subscriber)
 
+    # Quit the driver after the newsletter is sent
+    driver.quit()
+
     return jsonify({"message": "Newsletter sent successfully!"})
 
-@app.route('/subscribe', methods=['POST'])
-def subscribe():
-    """Allow users to subscribe to the newsletter."""
-    email = request.json.get('email')
-    
-    if not email:
-        return jsonify({"message": "Invalid email"}), 400
 
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        cursor.execute('INSERT OR IGNORE INTO subscribers (email) VALUES (?)', (email,))
-        conn.commit()
-        conn.close()
-        
-        return jsonify({"message": "Subscription successful!"})
-    
-    except sqlite3.Error as e:
-        return jsonify({"message": f"Database error: {e}"}), 500
-
-
-def job():
-    """Scheduled job to send newsletter daily."""
-    with app.test_client() as c:
-        c.get('/send_newsletter')
-
-schedule.every().day.at("11:05").do(job)
+schedule.every().day.at("11:29").do(send_newsletter)
 
 def run_scheduler():
     """Run the scheduler in the background."""
@@ -191,7 +186,24 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(60)
 
+def main():
+    # Initialize the driver
+    driver = initialize_driver()
+
+    # Scrape finance news
+    print("Fetching finance news...")
+    finance_news = get_finance_news(driver)
+    print("Finance News:", finance_news)
+
+    # Scrape tech news
+    print("Fetching tech news...")
+    tech_news = get_tech_news(driver)
+    print("Tech News:", tech_news)
+
+    # Close the driver after use
+    driver.quit()
+
 if __name__ == '__main__':
-    print("Finance News:", get_yahoo_finance_data())
-    print("Tech News:", get_tech_news())
-# app.run(debug=True, use_reloader=False)
+    # Initialize the database
+    init_db()
+    main()
