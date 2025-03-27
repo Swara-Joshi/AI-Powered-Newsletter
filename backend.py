@@ -45,6 +45,17 @@ def init_db():
     conn.commit()
     conn.close()
 
+def add_subscriber(email):
+    """Add a new subscriber to the database."""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO subscribers (email) VALUES (?)", (email,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass  # Email already exists in the database, ignore this error
+    conn.close()
+    
 def get_subscribers():
     """Retrieve all subscribed emails from the database."""
     conn = sqlite3.connect(DATABASE)
@@ -136,7 +147,20 @@ def send_email(subject, content, to_email):
     except Exception as e:
         print(f"Error sending email: {e}")
 
-@app.route('/send_newsletter', methods=['GET'])
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    """Handle subscription by adding an email to the database."""
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # Add the email to the database
+    add_subscriber(email)
+
+    return jsonify({"message": f"Subscribed successfully with email: {email}"}), 200
+
 @app.route('/send_newsletter', methods=['GET'])
 def send_newsletter():
     """Fetch news and send a newsletter to all subscribers."""
@@ -151,7 +175,7 @@ def send_newsletter():
     if not finance_news or finance_news[0]['title'] == "No Finance news available.":
         content += "<p>No Finance news available today.</p>"
     else:
-        content += "".join(f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+        content += "".join(f"<li><strong>{item['title']}</strong><br><a href='{item['link']}'>Read more</a></li>"
                            for item in finance_news)
 
     content += "</ul><h2>Tech News</h2><ul>"
@@ -159,7 +183,7 @@ def send_newsletter():
     if not tech_news or tech_news[0]['title'] == "No Tech news available.":
         content += "<p>No Tech news available today.</p>"
     else:
-        content += "".join(f"<li><strong>{item['title']}</strong><br>{item['summary']}<br><a href='{item['link']}'>Read more</a></li>"
+        content += "".join(f"<li><strong>{item['title']}</strong><br><a href='{item['link']}'>Read more</a></li>"
                            for item in tech_news)
 
     content += "</ul>"
@@ -177,8 +201,8 @@ def send_newsletter():
 
     return jsonify({"message": "Newsletter sent successfully!"})
 
-
-schedule.every().day.at("11:29").do(send_newsletter)
+# Schedule the newsletter to be sent daily at 11:48
+schedule.every().day.at("11:50").do(send_newsletter)
 
 def run_scheduler():
     """Run the scheduler in the background."""
@@ -206,4 +230,10 @@ def main():
 if __name__ == '__main__':
     # Initialize the database
     init_db()
-    main()
+    
+    # Start the scheduler in a separate thread
+    scheduler_thread = Thread(target=run_scheduler)
+    scheduler_thread.start()
+
+    # Run the Flask app
+    app.run(debug=False, host='0.0.0.0', port=5000)
