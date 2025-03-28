@@ -15,6 +15,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from threading import Thread
+import openai
+from dotenv import load_dotenv
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+openai.api_key = OPENAI_API_KEY
 
 # Load environment variables
 load_dotenv()
@@ -123,48 +129,85 @@ def get_finance_news(driver):
         return []
 
 def get_article_summary(article_url):
-    """Fetch the first paragraph of the article as a summary."""
+    """Fetch article content and summarize it using GPT-4o Mini."""
     try:
-        print(f"Fetching article summary from: {article_url}")
+        print(f"Fetching article from: {article_url}")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         response = requests.get(article_url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Find the first paragraph
-        paragraph = soup.find('p')
-        if paragraph:
-            summary = paragraph.get_text().strip()
-            # Limit summary length
-            return summary[:200] + "..." if len(summary) > 200 else summary
-        return "Summary not available"
+        # Extract all paragraphs to get more content
+        paragraphs = soup.find_all('p')
+        article_text = ' '.join([p.get_text().strip() for p in paragraphs[:10]])  # Limit to first 10 paragraphs
+        
+        if not article_text:
+            return "Summary not available - couldn't extract article content."
+            
+        # Use GPT-4o Mini to summarize
+        return summarize_with_gpt4o_mini(article_text)
     except Exception as e:
-        print(f"Error fetching summary for {article_url}: {e}")
-        return "Summary not available"
+        print(f"Error fetching or summarizing article from {article_url}: {e}")
+        return "Summary not available due to technical error."
 
+def summarize_with_gpt4o_mini(article_text):
+    """Use GPT-4o Mini to generate a concise summary of an article."""
+    try:
+        if not article_text or len(article_text) < 50:
+            return "Summary not available due to insufficient content."
+            
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that summarizes news articles concisely in 2-3 sentences."},
+                {"role": "user", "content": f"Summarize this article in 2-3 sentences:\n\n{article_text}"}
+            ],
+            max_tokens=150
+        )
+        
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error using GPT-4o Mini for summarization: {e}")
+        return "Summary not available due to API error."
+
+def summarize_with_gpt4(text):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Summarize the following article in 2-3 sentences:"},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=100
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error summarizing with GPT-4: {e}")
+        return "Summary not available"
 def get_tech_news(driver):
     """Scrape tech news from The Verge with improved selectors."""
     try:
         print("Navigating to the tech news page...")
-        driver.get('https://www.theverge.com/')
+        # Use the dedicated tech section instead of homepage
+        driver.get('https://www.theverge.com/tech')
         
         wait = WebDriverWait(driver, 10)
         print("Waiting for tech news elements...")
         
         # Target main article headlines with specific selector
         news_elements = wait.until(EC.presence_of_all_elements_located(
-            (By.CSS_SELECTOR, 'h2.c-entry-box--compact__title a')
+            (By.CSS_SELECTOR, 'h2 a')  # More general selector
         ))
         
         print("Extracting tech news...")
         news = []
         
-        for element in news_elements[:5]:  # Limit to top 5
+        for element in news_elements:
             title = element.text.strip()
             link = element.get_attribute('href')
             
-            if title and link and not link.endswith('#comments'):
+            if title and link and 'theverge.com' in link and not link.endswith('#comments'):
                 article_summary = get_article_summary(link)
                 news.append({'title': title, 'summary': article_summary, 'link': link})
                 
@@ -176,6 +219,7 @@ def get_tech_news(driver):
     except Exception as e:
         print(f"Error scraping The Verge: {e}")
         return []
+
 
 def send_email(subject, content, to_email):
     """Send an email using SendGrid with better error handling."""
@@ -268,7 +312,7 @@ def send_newsletter():
     else:
         return jsonify({"message": "Failed to send newsletters. Check SendGrid configuration."}), 500
 
-ddef run_scheduler():
+def run_scheduler():
     """Run the scheduler to send newsletters at scheduled times."""
     schedule.every().day.at("08:00").do(send_newsletter)  # Schedule at 8 AM daily
 
@@ -284,7 +328,7 @@ scheduler_thread.start()
 # Start the scheduler in a separate thread
 def start_background_scheduler():
     # Schedule to run daily at specific time
-    schedule.every().day.at("20:20").do(lambda: requests.get('http://127.0.0.1:5000/send_newsletter'))
+    schedule.every().day.at("20:32").do(lambda: requests.get('http://127.0.0.1:5000/send_newsletter'))
     thread = Thread(target=run_scheduler, daemon=True)
     thread.start()
 
