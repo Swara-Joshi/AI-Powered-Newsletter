@@ -15,10 +15,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from threading import Thread
-# import ssl
-
-# Disable SSL verification (for testing purposes only, not recommended for production)
-# ssl._create_default_https_context = ssl._create_unverified_context
 
 # Load environment variables
 load_dotenv()
@@ -30,12 +26,21 @@ SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 
 DATABASE = 'subscribers.db'
 
-# Selenium Setup
-chrome_options = Options()
-chrome_options.add_argument("--headless")  # Run in headless mode (no UI)
-chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+
+def initialize_driver():
+    """Initialize and return a Chrome WebDriver."""
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    service = Service(ChromeDriverManager().install())  # Service needs to be imported
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
+
 
 def init_db():
     """Initialize the database and create the subscribers table if it doesn't exist."""
@@ -58,7 +63,7 @@ def add_subscriber(email):
         cursor.execute("INSERT INTO subscribers (email) VALUES (?)", (email,))
         conn.commit()
     except sqlite3.IntegrityError:
-        pass  # Email already exists in the database, ignore this error
+        pass  # Email already exists in the database
     conn.close()
     
 def get_subscribers():
@@ -70,122 +75,113 @@ def get_subscribers():
     conn.close()
     return subscribers
 
-def wait_for_element(driver, by, value, timeout=10):
-    """Wait for an element to be present on the page."""
-    return WebDriverWait(driver, timeout).until(EC.presence_of_all_elements_located((by, value)))
-
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
-
 def initialize_driver():
+    """Initialize and return a Chrome WebDriver."""
     chrome_options = Options()
-    # Add any options you need here, for example:
-    chrome_options.add_argument('--headless')  # If you want to run in headless mode
-
-    # Create the service object and pass it to the driver
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
     service = Service(ChromeDriverManager().install())
-
-    # Initialize the driver with the service object and options
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
-
-
 def get_finance_news(driver):
-    """Scrape finance news from CNBC with retry logic and get summaries. Only returns the top 5 news."""
+    """Scrape finance news from CNBC with improved selectors."""
     try:
         print("Navigating to the finance news page...")
         driver.get('https://www.cnbc.com/finance/')
 
-        # Wait for the page to load and find the news elements
+        # Use more specific selectors to target actual news articles
         wait = WebDriverWait(driver, 10)
         print("Waiting for news elements...")
-        news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))
         
-        # Extract news with retry for stale element reference error
+        # Target headline articles with more specific selector
+        news_elements = wait.until(EC.presence_of_all_elements_located(
+            (By.CSS_SELECTOR, 'div.Card-titleContainer a')
+        ))
+        
         print("Extracting news...")
         news = []
-        for _ in range(3):  # Retry up to 3 times
-            try:
-                for element in news_elements:
-                    title = element.text.strip()
-                    link = element.get_attribute('href')
-                    if title:
-                        # Now fetch the summary from the article page
-                        article_summary = get_article_summary(link)
-                        news.append({'title': title, 'summary': article_summary, 'link': link})
-                    if len(news) >= 5:  # Limit to 5 articles
-                        break
-                break  # Exit if no error occurs
-            except Exception as e:
-                print(f"Error while extracting: {e}")
-                news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))  # Re-fetch elements
         
-        if not news:
-            print("No finance news found.")
-        return news[:5]  # Return only the first 5 news articles
+        for element in news_elements[:5]:  # Limit to 5 articles
+            title = element.text.strip()
+            link = element.get_attribute('href')
+            
+            if title and link and not link.endswith('#comments'):
+                # Get summary from article
+                article_summary = get_article_summary(link)
+                news.append({'title': title, 'summary': article_summary, 'link': link})
+                
+                if len(news) >= 5:
+                    break
+                    
+        return news
     except Exception as e:
         print(f"Error scraping CNBC Finance: {e}")
         return []
-
 
 def get_article_summary(article_url):
     """Fetch the first paragraph of the article as a summary."""
     try:
         print(f"Fetching article summary from: {article_url}")
-        # Send a GET request to the article page
-        response = requests.get(article_url)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(article_url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Find the first paragraph or content block to extract summary
+        # Find the first paragraph
         paragraph = soup.find('p')
         if paragraph:
-            return paragraph.get_text().strip()
+            summary = paragraph.get_text().strip()
+            # Limit summary length
+            return summary[:200] + "..." if len(summary) > 200 else summary
         return "Summary not available"
     except Exception as e:
         print(f"Error fetching summary for {article_url}: {e}")
         return "Summary not available"
 
 def get_tech_news(driver):
-    """Scrape tech news from The Verge and return top 5 latest from the last 24 hours with summaries."""
+    """Scrape tech news from The Verge with improved selectors."""
     try:
         print("Navigating to the tech news page...")
         driver.get('https://www.theverge.com/')
         
-        # Wait for the page to load and find the news elements
         wait = WebDriverWait(driver, 10)
         print("Waiting for tech news elements...")
-        news_elements = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'a')))
-
+        
+        # Target main article headlines with specific selector
+        news_elements = wait.until(EC.presence_of_all_elements_located(
+            (By.CSS_SELECTOR, 'h2.c-entry-box--compact__title a')
+        ))
+        
         print("Extracting tech news...")
         news = []
         
-        for element in news_elements:
+        for element in news_elements[:5]:  # Limit to top 5
             title = element.text.strip()
             link = element.get_attribute('href')
             
-            # Check if link and title exist
-            if title and link:
-                # Now fetch the summary from the article page
+            if title and link and not link.endswith('#comments'):
                 article_summary = get_article_summary(link)
                 news.append({'title': title, 'summary': article_summary, 'link': link})
+                
+                if len(news) >= 5:
+                    break
         
-        # Only return the top 5 news items
-        top_news = news[:5]
-
-        print(f"Found {len(top_news)} tech news articles (top 5).")
-        return top_news
+        print(f"Found {len(news)} tech news articles.")
+        return news
     except Exception as e:
         print(f"Error scraping The Verge: {e}")
         return []
 
 def send_email(subject, content, to_email):
-    """Send an email using SendGrid."""
+    """Send an email using SendGrid with better error handling."""
     if not SENDGRID_API_KEY or not SENDER_EMAIL:
         print("SendGrid API key or sender email not configured.")
-        return
+        return False
 
     message = Mail(
         from_email=SENDER_EMAIL,
@@ -198,8 +194,12 @@ def send_email(subject, content, to_email):
         sg = SendGridAPIClient(SENDGRID_API_KEY)
         response = sg.send(message)
         print(f"Email sent to {to_email}. Status code: {response.status_code}")
+        return True
     except Exception as e:
         print(f"Error sending email: {e}")
+        if hasattr(e, 'body'):
+            print(f"SendGrid error details: {e.body}")
+        return False
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe():
@@ -217,57 +217,75 @@ def subscribe():
 
 @app.route('/send_newsletter', methods=['GET'])
 def send_newsletter():
-    with app.app_context():
-        """Fetch news and send a newsletter to all subscribers."""
-        driver = initialize_driver()  # Initialize the driver here
+    """Fetch news and send a newsletter to all subscribers."""
+    driver = initialize_driver()
 
-        # Fetch finance news and tech news
-        finance_news = get_finance_news(driver)
-        tech_news = get_tech_news(driver)
+    # Fetch finance news and tech news
+    finance_news = get_finance_news(driver)
+    tech_news = get_tech_news(driver)
+    
+    # Close the driver after use
+    driver.quit()
 
-        content = "<h1>Today's Finance & Tech News</h1><h2>Finance News</h2><ul>"
-        
-        if not finance_news or finance_news[0]['title'] == "No Finance news available.":
-            content += "<p>No Finance news available today.</p>"
-        else:
-            content += "".join(f"<li><strong>{item['title']}</strong><br><a href='{item['link']}'>Read more</a></li>"
-                            for item in finance_news)
+    content = "<h1>Today's Finance & Tech News</h1>"
+    
+    # Finance News Section
+    content += "<h2>Finance News</h2><ul>"
+    if not finance_news:
+        content += "<p>No Finance news available today.</p>"
+    else:
+        for item in finance_news:
+            content += f"<li><strong>{item['title']}</strong>"
+            if item['summary'] and item['summary'] != "Summary not available":
+                content += f"<p>{item['summary']}</p>"
+            content += f"<a href='{item['link']}'>Read more</a></li>"
+    content += "</ul>"
+    
+    # Tech News Section
+    content += "<h2>Tech News</h2><ul>"
+    if not tech_news:
+        content += "<p>No Tech news available today.</p>"
+    else:
+        for item in tech_news:
+            content += f"<li><strong>{item['title']}</strong>"
+            if item['summary'] and item['summary'] != "Summary not available":
+                content += f"<p>{item['summary']}</p>"
+            content += f"<a href='{item['link']}'>Read more</a></li>"
+    content += "</ul>"
 
-        content += "</ul><h2>Tech News</h2><ul>"
-        
-        if not tech_news or tech_news[0]['title'] == "No Tech news available.":
-            content += "<p>No Tech news available today.</p>"
-        else:
-            content += "".join(f"<li><strong>{item['title']}</strong><br><i>{item['summary']}</i><br><a href='{item['link']}'>Read more</a></li>"
-                            for item in tech_news)
+    subscribers = get_subscribers()
+    
+    if not subscribers:
+        return jsonify({"message": "No subscribers found."}), 404
 
-        content += "</ul>"
+    success_count = 0
+    for subscriber in subscribers:
+        if send_email("Daily Finance & Tech Newsletter", content, subscriber):
+            success_count += 1
 
-        subscribers = get_subscribers()
-        
-        if not subscribers:
-            return jsonify({"message": "No subscribers found."}), 404
+    if success_count > 0:
+        return jsonify({"message": f"Newsletter sent successfully to {success_count} subscribers!"}), 200
+    else:
+        return jsonify({"message": "Failed to send newsletters. Check SendGrid configuration."}), 500
 
-        for subscriber in subscribers:
-            send_email("Daily Finance & Tech Newsletter", content, subscriber)
+ddef run_scheduler():
+    """Run the scheduler to send newsletters at scheduled times."""
+    schedule.every().day.at("08:00").do(send_newsletter)  # Schedule at 8 AM daily
 
-        # Quit the driver after the newsletter is sent
-        driver.quit()
-
-        return jsonify({"message": "Newsletter sent successfully!"})
-
-# Schedule the newsletter to be sent daily at 11:48
-schedule.every().day.at("18:59").do(send_newsletter)
-
-def run_scheduler():
-    schedule.every(1).minute.do(send_newsletter)  # Run the job every minute
     while True:
         schedule.run_pending()
-        time.sleep(1)
+        time.sleep(60)  # Check every minute
+
+# Start the scheduler in a separate thread
+scheduler_thread = Thread(target=run_scheduler, daemon=True)
+scheduler_thread.start()
+
 
 # Start the scheduler in a separate thread
 def start_background_scheduler():
-    thread = Thread(target=run_scheduler)
+    # Schedule to run daily at specific time
+    schedule.every().day.at("20:20").do(lambda: requests.get('http://127.0.0.1:5000/send_newsletter'))
+    thread = Thread(target=run_scheduler, daemon=True)
     thread.start()
 
 if __name__ == "__main__":
