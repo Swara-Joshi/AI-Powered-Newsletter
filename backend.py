@@ -157,7 +157,7 @@ def summarize_with_gpt4o_mini(article_text):
         if not article_text or len(article_text) < 50:
             return "Summary not available due to insufficient content."
             
-        response = client.chat.completions.create(
+        response = openai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that summarizes news articles concisely in 2-3 sentences."},
@@ -185,6 +185,7 @@ def summarize_with_gpt4(text):
     except Exception as e:
         print(f"Error summarizing with GPT-4: {e}")
         return "Summary not available"
+    
 def get_tech_news(driver):
     """Scrape tech news from The Verge with improved selectors."""
     try:
@@ -314,7 +315,7 @@ def send_newsletter():
 
 def run_scheduler():
     """Run the scheduler to send newsletters at scheduled times."""
-    schedule.every().day.at("08:00").do(send_newsletter)  # Schedule at 8 AM daily
+    schedule.every().day.at("21:47").do(send_newsletter)  # Schedule at 8 AM daily
 
     while True:
         schedule.run_pending()
@@ -328,7 +329,7 @@ scheduler_thread.start()
 # Start the scheduler in a separate thread
 def start_background_scheduler():
     # Schedule to run daily at specific time
-    schedule.every().day.at("20:32").do(lambda: requests.get('http://127.0.0.1:5000/send_newsletter'))
+    schedule.every().day.at("21:53").do(lambda: requests.get('http://127.0.0.1:5000/send_newsletter'))
     thread = Thread(target=run_scheduler, daemon=True)
     thread.start()
 
