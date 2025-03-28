@@ -4,8 +4,7 @@
 Newsletter AI is a full-stack web application that automates news aggregation, summarization, sentiment analysis, and personalized email delivery. The application:
 
 - Scrapes the latest finance and tech news using **Selenium** and **BeautifulSoup**.
-- Uses **OpenAI's GPT model** for advanced content summarization and sentiment analysis.
-- Automates email delivery to over **1000+ subscribers**, increasing engagement by **30%**.
+- Uses **OpenAI's GPT model** for advanced content summarization.
 - Provides a Flask-based web interface for user interaction.
 
 ## 🚀 Features
@@ -69,4 +68,4 @@ Access the app at **http://127.0.0.1:5000/**
 
 
 ## 💡 Author
-Developed by **[Swara Joshi]** 
+Developed by **Swara Joshi** 
